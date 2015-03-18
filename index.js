@@ -25,6 +25,10 @@ var client = s3.createClient({
   }
 });
 
+app.get('/', function(request, response) {
+  response.send('Hello World!');
+});
+
 app.get('/shutdown', function(req, res) {
   res.send('hello world');
   process.nextTick(function() {
@@ -100,8 +104,7 @@ function downloadFromS3(callback) {
     callback();
   });
   uploader.on('progress', function() {
-    logger('progress', uploader.progressMd5Amount,
-              uploader.progressAmount, uploader.progressTotal);
+    logger('progress');
   });
   uploader.on('end', function() {
     logger('done downloading');
@@ -122,8 +125,8 @@ function extractFile(callback) {
   });
 }
 
-async.series([downloadFromS3, extractFile, startServer], function(err) {
-  logger('Done with series');
+async.series([downloadFromS3, extractFile, deleteFile, startServer], function(err) {
+  logger('Server running');
 });
 
 function compressDir(callback) {
@@ -135,7 +138,7 @@ function sendtoS3(callback) {
     localFile: file,
     s3Params: {
       Bucket: 'herokueiriktest',
-      Key: 'file'
+      Key: file
     }
   };
   logger('Starting upload');
@@ -145,8 +148,7 @@ function sendtoS3(callback) {
     callback(err);
   });
   uploader.on('progress', function() {
-    logger('progress', uploader.progressMd5Amount,
-              uploader.progressAmount, uploader.progressTotal);
+    logger('progress');
   });
   uploader.on('end', function() {
     logger('done uploading');
@@ -154,9 +156,14 @@ function sendtoS3(callback) {
   });
 }
 
+function deleteFile(callback) {
+  logger('Deleting file', file);
+  fs.unlink(file, callback);
+}
+
 function initBackup() {
   logger('Starting backup routine');
-  async.series([compressDir, sendtoS3], function(err) {
+  async.series([compressDir, sendtoS3, deleteFile], function(err) {
     if (err) {
       logger('Error: ', err);
     }
