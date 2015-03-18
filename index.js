@@ -79,11 +79,20 @@ function startServer(callback) {
   server = app.listen(port, function () {
     var host = server.address().address;
     var port = server.address().port;
-    db = levelup('./data');
 
     logger('Example app listening at http://%s:%s', host, port);
     callback();
   });
+}
+
+function restartServer(callback) {
+  logger('Restarting server');
+
+  db = levelup('./data');
+  server.close(function() {
+    logger('Stopped server');
+    startServer(callback);
+  })
 }
 
 function logger() {
@@ -125,7 +134,7 @@ function extractFile(callback) {
   });
 }
 
-async.series([downloadFromS3, extractFile, deleteFile, startServer], function(err) {
+async.series([startServer, downloadFromS3, extractFile, deleteFile, restartServer], function(err) {
   logger('Server running');
 });
 
@@ -158,7 +167,9 @@ function sendtoS3(callback) {
 
 function deleteFile(callback) {
   logger('Deleting file', file);
-  fs.unlink(file, callback);
+  fs.unlink(file, function () {
+    callback()
+  });
 }
 
 function initBackup() {
