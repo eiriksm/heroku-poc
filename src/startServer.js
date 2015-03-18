@@ -8,7 +8,7 @@ function startServer(app) {
       var host = server.address().address;
       var port = server.address().port;
 
-      logger('Example app listening at http://%s:%s', host, port);
+      logger('App listening at http://%s:%s', host, port);
       callback();
     });
     app.set('server', server);

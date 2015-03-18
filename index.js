@@ -96,6 +96,7 @@ function initBackup() {
       logger('Error: ', err);
     }
     logger('Backup finished. Exiting.');
+    logger('');
     process.exit();
   });
 }
@@ -107,7 +108,12 @@ process.on('uncaughtException', function(e) {
   process.nextTick(initBackup);
 });
 
-process.on('SIGTERM', function() {
-  logger('Caught SIGTERM.');
+//process.on('SIGTERM', function() {
+//  logger('Caught SIGTERM.');
+//  process.nextTick(initBackup);
+//});
+
+process.on('SIGINT', function() {
+  logger('Caught SIGINT.');
   process.nextTick(initBackup);
 });
