@@ -3,27 +3,35 @@ var express = require('express');
 var bodyParser = require('body-parser');
 var app = express();
 app.use(bodyParser.json());
-var fs = require('fs');
+var port = process.env.PORT || 3000;
+app.set('port', port);
+app.set('db', null);
+app.set('server', null);
 var async = require('async');
 var s3 = require('s3');
-var levelup = require('levelup');
-var db;
-
-var targz = require('tar.gz');
-
-var file = 'data.tar.gz';
-
 var client = s3.createClient({
-  maxAsyncS3: 3,     // this is the default
-  s3RetryCount: 3,    // this is the default
-  s3RetryDelay: 1000, // this is the default
-  multipartUploadThreshold: 20971520, // this is the default (20 MB)
-  multipartUploadSize: 15728640, // this is the default (15 MB)
+  maxAsyncS3: 3,
+  s3RetryCount: 3,
+  s3RetryDelay: 1000,
+  multipartUploadThreshold: 20971520,
+  multipartUploadSize: 15728640,
   s3Options: {
     accessKeyId: process.env.AWS_KEY,
     secretAccessKey: process.env.AWS_SECRET
   }
 });
+app.set('client', client);
+
+var file = 'data.tar.gz';
+app.set('file', file);
+var logger = require('./src/logger');
+var startServer = require('./src/startServer')(app);
+var restartServer = require('./src/restartServer')(app);
+var downloadFromS3 = require('./src/downloadFromS3')(app);
+var extractFile = require('./src/extractFile')(app);
+var compressDir = require('./src/compressDir')(app);
+var deleteFile = require('./src/deleteFile')(app);
+var sendToS3 = require('./src/sendToS3')(app);
 
 app.get('/', function(request, response) {
   response.send('Hello World!');
@@ -41,6 +49,7 @@ app.get('/data', function(req, res) {
   var _callback = function(e, v) {
     res.json(v);
   };
+  var db = app.get('db');
   var s = db.createReadStream({
     gte: 'a',
     lte: 'z'
@@ -62,6 +71,7 @@ app.post('/data', function(req, res) {
     res.status(400).end();
     return;
   }
+  var db = app.get('db');
   db.put(data.key, data.value, function(e) {
     if (e) {
       logger('Error happened', e);
@@ -72,109 +82,16 @@ app.post('/data', function(req, res) {
   });
 });
 
-var port = process.env.PORT || 3000;
-var server;
-
-function startServer(callback) {
-  server = app.listen(port, function () {
-    var host = server.address().address;
-    var port = server.address().port;
-
-    logger('Example app listening at http://%s:%s', host, port);
-    callback();
-  });
-}
-
-function restartServer(callback) {
-  logger('Restarting server');
-
-  db = levelup('./data');
-  server.close(function() {
-    logger('Stopped server');
-    startServer(callback);
-  })
-}
-
-function logger() {
-  console.log.apply(console, arguments);
-}
-
-function downloadFromS3(callback) {
-  logger('Starting download from s3');
-  var params = {
-    localFile: file,
-    s3Params: {
-      Bucket: 'herokueiriktest',
-      Key: file
-    }
-  };
-  var uploader = client.downloadFile(params);
-  uploader.on('error', function(err) {
-    callback();
-  });
-  uploader.on('progress', function() {
-    logger('progress');
-  });
-  uploader.on('end', function() {
-    logger('done downloading');
-    callback();
-  });
-}
-
-function extractFile(callback) {
-  fs.exists(file, function(exists) {
-    if (exists) {
-      logger('Extracting ' + file);
-      new targz().extract(file, '.', callback);
-    }
-    else {
-      logger('No file with the name ' + file + ' found. Moving on.');
-      callback();
-    }
-  });
-}
-
 async.series([startServer, downloadFromS3, extractFile, deleteFile, restartServer], function(err) {
+  if (err) {
+    logger('Had en error in starting up. This is it: ', err);
+  }
   logger('Server running');
 });
 
-function compressDir(callback) {
-  new targz().compress('data', file, callback);
-}
-
-function sendtoS3(callback) {
-  var params = {
-    localFile: file,
-    s3Params: {
-      Bucket: 'herokueiriktest',
-      Key: file
-    }
-  };
-  logger('Starting upload');
-  var uploader = client.uploadFile(params);
-  uploader.on('error', function(err) {
-    logger('unable to upload:', err.stack);
-    callback(err);
-  });
-  uploader.on('progress', function() {
-    logger('progress');
-  });
-  uploader.on('end', function() {
-    logger('done uploading');
-    callback();
-  });
-}
-
-function deleteFile(callback) {
-  logger('Deleting file', file);
-  fs.unlink(file, function () {
-    callback()
-  });
-}
-
 function initBackup() {
   logger('Starting backup routine');
-  async.series([compressDir, sendtoS3, deleteFile], function(err) {
+  async.series([compressDir, sendToS3, deleteFile], function(err) {
     if (err) {
       logger('Error: ', err);
     }
@@ -187,10 +104,10 @@ process.on('uncaughtException', function(e) {
   console.log(e);
   console.log(e.stack);
   logger('Caught uncaughtException');
-  initBackup();
+  process.nextTick(initBackup);
 });
 
 process.on('SIGTERM', function() {
   logger('Caught SIGTERM.');
-  initBackup();
+  process.nextTick(initBackup);
 });
