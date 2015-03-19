@@ -8,6 +8,7 @@ app.set('port', port);
 app.set('db', null);
 app.set('server', null);
 var async = require('async');
+var fs = require('fs');
 var s3 = require('s3');
 var client = s3.createClient({
   maxAsyncS3: 3,
@@ -24,6 +25,7 @@ app.set('client', client);
 
 var file = 'data.tar.gz';
 app.set('file', file);
+app.set('lockFile', './lock');
 var logger = require('./src/logger');
 var startServer = require('./src/startServer')(app);
 var restartServer = require('./src/restartServer')(app);
@@ -33,20 +35,16 @@ var compressDir = require('./src/compressDir')(app);
 var deleteFile = require('./src/deleteFile')(app);
 var sendToS3 = require('./src/sendToS3')(app);
 
-var spawn = require('child_process').spawn;
-var c = spawn('node', ['background.js']);
-c.on('close', function(code, signal) {
-  logger('Spawned process closed.', code, signal);
-});
-
 app.get('/', function(request, response) {
   response.send('Hello World!');
 });
 
 app.get('/shutdown', function(req, res) {
   res.send('hello world');
+  var lockFile = app.get('lockFile');
+  fs.writeFile(lockFile, 'true');
   process.nextTick(function() {
-    throw new Error('waterr');
+    throw new Error('Shutdown requested');
   });
 });
 
@@ -96,13 +94,6 @@ async.series([startServer, downloadFromS3, extractFile, deleteFile, restartServe
 });
 
 function initBackup() {
-  logger('Trying to kill spawned process.');
-  try {
-    c.kill();
-  }
-  catch (err) {
-    logger('Could not stop child. Reason: ' + err);
-  }
   logger('Starting backup routine');
   async.series([compressDir, sendToS3, deleteFile], function(err) {
     if (err) {
@@ -130,5 +121,3 @@ process.on('SIGINT', function() {
   logger('Caught SIGINT.');
   process.nextTick(initBackup);
 });
-
-
