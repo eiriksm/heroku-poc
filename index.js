@@ -33,6 +33,12 @@ var compressDir = require('./src/compressDir')(app);
 var deleteFile = require('./src/deleteFile')(app);
 var sendToS3 = require('./src/sendToS3')(app);
 
+var spawn = require('child_process').spawn;
+var c = spawn('node', ['background.js']);
+c.on('close', function(code, signal) {
+  logger('Spawned process closed.', code, signal);
+});
+
 app.get('/', function(request, response) {
   response.send('Hello World!');
 });
@@ -90,6 +96,13 @@ async.series([startServer, downloadFromS3, extractFile, deleteFile, restartServe
 });
 
 function initBackup() {
+  logger('Trying to kill spawned process.');
+  try {
+    c.kill();
+  }
+  catch (err) {
+    logger('Could not stop child. Reason: ' + err);
+  }
   logger('Starting backup routine');
   async.series([compressDir, sendToS3, deleteFile], function(err) {
     if (err) {
@@ -108,12 +121,14 @@ process.on('uncaughtException', function(e) {
   process.nextTick(initBackup);
 });
 
-//process.on('SIGTERM', function() {
-//  logger('Caught SIGTERM.');
-//  process.nextTick(initBackup);
-//});
+process.on('SIGTERM', function() {
+  logger('Caught SIGTERM.');
+  process.nextTick(initBackup);
+});
 
 process.on('SIGINT', function() {
   logger('Caught SIGINT.');
   process.nextTick(initBackup);
 });
+
+
