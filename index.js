@@ -34,7 +34,7 @@ var file = 'data.tar.gz';
 app.set('file', file);
 app.set('lockKey', 'lock');
 app.set('redis', redis);
-require('./src/lockMiddleWare')(app);
+require('./src/lockMiddleware')(app);
 var logger = require('./src/logger');
 var startServer = require('./src/startServer')(app);
 var restartServer = require('./src/restartServer')(app);
