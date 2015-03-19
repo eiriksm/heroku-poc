@@ -8,7 +8,14 @@ app.set('port', port);
 app.set('db', null);
 app.set('server', null);
 var async = require('async');
-var fs = require('fs');
+var redis;
+if (process.env.REDISTOGO_URL) {
+  var rtg   = require('url').parse(process.env.REDISTOGO_URL);
+  redis = require('redis').createClient(rtg.port, rtg.hostname);
+  redis.auth(rtg.auth.split(":")[1]);
+} else {
+  var redis = require('redis').createClient();
+}
 var s3 = require('s3');
 var client = s3.createClient({
   maxAsyncS3: 3,
@@ -25,7 +32,9 @@ app.set('client', client);
 
 var file = 'data.tar.gz';
 app.set('file', file);
-app.set('lockFile', './lock');
+app.set('lockKey', 'lock');
+app.set('redis', redis);
+require('./src/lockMiddleWare')(app);
 var logger = require('./src/logger');
 var startServer = require('./src/startServer')(app);
 var restartServer = require('./src/restartServer')(app);
@@ -40,12 +49,20 @@ app.get('/', function(request, response) {
 });
 
 app.post('/shutdown', function(req, res) {
-  res.send('hello world');
-  var lockFile = app.get('lockFile');
-  fs.writeFile(lockFile, 'true');
+  var lockKey = app.get('lockKey');
   process.nextTick(function() {
+    res.send('hello world');
+    redis.set(lockKey, 1);
+    // Throw error to force shutdown.
     throw new Error('Shutdown requested');
   });
+});
+
+app.post('/deploy', function(req, res) {
+  logger('Deploy command received');
+  var lockKey = app.get('lockKey');
+  redis.del(lockKey);
+  res.send('Okay!');
 });
 
 app.get('/data', function(req, res) {
@@ -86,7 +103,7 @@ app.post('/data', function(req, res) {
   });
 });
 
-async.series([startServer, downloadFromS3, extractFile, deleteFile, restartServer], function(err) {
+async.series([downloadFromS3, extractFile, deleteFile, startServer], function(err) {
   if (err) {
     logger('Had en error in starting up. This is it: ', err);
   }
