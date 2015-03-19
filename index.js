@@ -39,7 +39,7 @@ app.get('/', function(request, response) {
   response.send('Hello World!');
 });
 
-app.get('/shutdown', function(req, res) {
+app.post('/shutdown', function(req, res) {
   res.send('hello world');
   var lockFile = app.get('lockFile');
   fs.writeFile(lockFile, 'true');
